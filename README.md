@@ -8,6 +8,45 @@ A React Testing Library–inspired helper for Aurelia 2 apps, built on top of
 npm i -D aurelia2-testing-library @aurelia/testing @testing-library/dom
 ```
 
+## Test environment setup (Node + jsdom)
+`@aurelia/testing` needs a platform instance. In a Node test runner, set it
+once during setup.
+
+```ts
+import { JSDOM } from 'jsdom';
+import { BrowserPlatform } from '@aurelia/platform-browser';
+import { setPlatform } from '@aurelia/testing';
+
+const jsdom = new JSDOM(`<!DOCTYPE html><html><body></body></html>`, {
+  pretendToBeVisual: true,
+});
+
+const w = jsdom.window;
+const platform = new BrowserPlatform(w, {
+  queueMicrotask: typeof w.queueMicrotask === 'function'
+    ? w.queueMicrotask.bind(w)
+    : (cb) => Promise.resolve().then(cb),
+  fetch: typeof w.fetch === 'function'
+    ? w.fetch.bind(w)
+    : () => { throw new Error('fetch not available'); },
+});
+
+setPlatform(platform);
+BrowserPlatform.set(globalThis, platform);
+```
+
+If your test runner already provides a DOM (for example jsdom in Jest/Vitest),
+you can use:
+
+```ts
+import { BrowserPlatform } from '@aurelia/platform-browser';
+import { setPlatform } from '@aurelia/testing';
+
+const platform = BrowserPlatform.getOrCreate(globalThis);
+setPlatform(platform);
+BrowserPlatform.set(globalThis, platform);
+```
+
 ## Quick start
 
 ```ts
@@ -97,6 +136,16 @@ Available helpers:
 - `type`, `keyboard`, `clear`, `paste`
 - `selectOptions`, `deselectOptions`, `upload`
 - `tab`
+
+Pointer actions allow explicit sequences:
+
+```ts
+await user.pointer([
+  { target: slider, type: 'down', clientX: 10, clientY: 5 },
+  { type: 'move', clientX: 80, clientY: 5 },
+  { type: 'up' },
+]);
+```
 
 ### `cleanup()`
 Stops and disposes all mounted fixtures and resets `screen`.
