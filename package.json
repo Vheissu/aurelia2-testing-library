@@ -1,0 +1,44 @@
+{
+  "name": "aurelia2-testing-library",
+  "version": "0.1.0",
+  "description": "A React Testing Library-inspired testing helper for Aurelia 2.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@aurelia/testing": ">=2.0.0-rc.0",
+    "@testing-library/dom": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@aurelia/testing": "2.0.0-rc.0",
+    "@aurelia/platform-browser": "2.0.0-rc.0",
+    "@testing-library/dom": "10.4.1",
+    "jsdom": "24.1.0",
+    "typescript": "5.9.2"
+  },
+  "keywords": [
+    "aurelia",
+    "testing",
+    "testing-library",
+    "dom",
+    "react-testing-library"
+  ]
+}
