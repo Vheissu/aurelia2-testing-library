@@ -12,6 +12,10 @@ npm i -D aurelia2-testing-library @aurelia/testing @testing-library/dom
 `@aurelia/testing` needs a platform instance. In a Node test runner, set it
 once during setup.
 
+If you created your app with `npx makes aurelia`, the Vitest/Jest setup file it
+generates already configures the platform for you. In that case, you can skip
+the setup below and just use the library in your tests.
+
 ```ts
 import { JSDOM } from 'jsdom';
 import { BrowserPlatform } from '@aurelia/platform-browser';
