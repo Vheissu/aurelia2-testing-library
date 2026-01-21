@@ -50,7 +50,7 @@ BrowserPlatform.set(globalThis, platform);
 ## Quick start
 
 ```ts
-import { render, screen, userEvent, createUserEvent, cleanup } from 'aurelia2-testing-library';
+import { renderComponent, screen, userEvent, createUserEvent, cleanup } from 'aurelia2-testing-library';
 import { CustomElement } from '@aurelia/runtime-html';
 
 afterEach(async () => {
@@ -67,9 +67,7 @@ CustomElement.define({
 })(HelloWorld);
 
 it('renders and updates', async () => {
-  await render('<hello-world></hello-world>', {
-    component: HelloWorld,
-  });
+  await renderComponent(HelloWorld);
 
   expect(screen.getByText('Hello, Aurelia!')).toBeTruthy();
 
@@ -110,9 +108,23 @@ Options:
 - `attachTo`: element to move the fixture host into (defaults to `document.body`).
 - `baseElement`: element used by `screen` and query bindings (defaults to `document.body` or `attachTo`).
 
+Tip: if your root component is already a `CustomElement` (e.g. `MyApp`),
+prefer `renderComponent(MyApp)` to avoid recursive `<my-app>` templates.
+
 ### `screen`
 `screen` is bound to the most recently rendered fixture’s `baseElement`, just
 like React Testing Library. Use it for top-level queries.
+
+### `renderComponent(component, options)`
+Render a CustomElement as the root without manually passing its template.
+This avoids self-referencing templates like `<my-app>` inside the root.
+
+```ts
+import { renderComponent } from 'aurelia2-testing-library';
+import { MyApp } from '../src/my-app';
+
+await renderComponent(MyApp);
+```
 
 ### `userEvent`
 User-event helpers simulate realistic browser sequences (pointer + mouse +

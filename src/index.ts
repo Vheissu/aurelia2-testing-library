@@ -1,5 +1,5 @@
-export { render, cleanup } from './render.js';
-export type { RenderOptions, RenderResult } from './render.js';
+export { render, renderComponent, cleanup } from './render.js';
+export type { RenderOptions, RenderResult, RenderComponentOptions } from './render.js';
 export { screen } from './screen.js';
 export { userEvent, createUserEvent } from './user-event.js';
 

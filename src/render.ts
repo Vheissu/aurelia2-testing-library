@@ -1,5 +1,6 @@
 import type { Constructable } from '@aurelia/kernel';
 import type { PartialCustomElementDefinition, IAppRootConfig, ICustomElementViewModel } from '@aurelia/runtime-html';
+import { CustomElement } from '@aurelia/runtime-html';
 import { createFixture, type IFixture, TestContext } from '@aurelia/testing';
 import {
   getQueriesForElement,
@@ -91,6 +92,8 @@ export interface RenderResult<T extends object> extends QueryApi {
 }
 
 export type FixtureConfig = Pick<IAppRootConfig, 'allowActionlessForm'>;
+
+export type RenderComponentOptions<T extends object> = Omit<RenderOptions<T>, 'component' | 'rootElementDef'>;
 
 export const render = async <T extends object>(
   template: string | Node,
@@ -188,6 +191,25 @@ export const render = async <T extends object>(
     debug,
     asFragment,
   };
+};
+
+export const renderComponent = async <T extends object>(
+  component: T | Constructable<T>,
+  options: RenderComponentOptions<T> = {}
+): Promise<RenderResult<T>> => {
+  const componentType =
+    typeof component === 'function'
+      ? (component as Constructable<T>)
+      : (component as object).constructor as Constructable<T>;
+  const definition = CustomElement.getDefinition(componentType);
+  if (definition == null || definition.template == null) {
+    throw new Error('renderComponent: component is not a CustomElement.');
+  }
+  return render(definition.template, {
+    ...options,
+    component,
+    rootElementDef: definition,
+  });
 };
 
 export const cleanup = async (): Promise<void> => {
