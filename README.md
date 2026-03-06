@@ -77,7 +77,7 @@ it('renders and updates', async () => {
 
   await userEvent.type(screen.getByLabelText('Name'), ' Testing');
 
-  expect(screen.getByText('Hello, Testing!')).toBeTruthy();
+  expect(screen.getByText('Hello, Aurelia Testing!')).toBeTruthy();
 });
 ```
 
@@ -117,7 +117,9 @@ prefer `renderComponent(MyApp)` to avoid recursive `<my-app>` templates.
 
 ### `screen`
 `screen` is bound to the most recently rendered fixture’s `baseElement`, just
-like React Testing Library. Use it for top-level queries.
+like React Testing Library. If that fixture unmounts, `screen` falls back to
+the previous mounted render (or `document.body` when nothing is mounted). Use
+it for top-level queries.
 
 ### `renderComponent(component, options)`
 Render a CustomElement as the root without manually passing its template.
@@ -145,6 +147,9 @@ await user.paste(screen.getByLabelText('Bio'), 'Hello!');
 await user.selectOptions(screen.getByLabelText('Role'), 'Admin');
 await user.upload(screen.getByLabelText('Avatar'), new File(['x'], 'avatar.png'));
 ```
+
+For single-file inputs, `upload()` keeps only the first file unless the input
+has the `multiple` attribute.
 
 Available helpers:
 - `click`, `dblClick`, `tripleClick`, `rightClick`, `hover`, `unhover`

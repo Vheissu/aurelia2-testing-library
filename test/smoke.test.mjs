@@ -1,59 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
-import { BrowserPlatform } from '@aurelia/platform-browser';
-import { ensureTaskQueuesEmpty, setPlatform } from '@aurelia/testing';
-import { render, cleanup, screen, userEvent, waitFor } from '../dist/index.js';
+import { ensureTaskQueuesEmpty } from '@aurelia/testing';
+import { render, screen, userEvent, waitFor } from '../dist/index.js';
+import { installTestEnvironment } from './helpers/test-env.mjs';
 
-const jsdom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`, {
-  pretendToBeVisual: true,
-});
-const p = Promise.resolve();
-const $queueMicrotask = (cb) => {
-  p.then(cb).catch(err => {
-    throw err;
-  });
-};
-const w = Object.assign(jsdom.window);
-
-const platform = new BrowserPlatform(w, {
-  queueMicrotask: typeof w.queueMicrotask === 'function' ? w.queueMicrotask.bind(w) : $queueMicrotask,
-  fetch: typeof w.fetch === 'function' ? w.fetch.bind(w) : (() => { throw new Error('fetch not available'); }),
-});
-setPlatform(platform);
-BrowserPlatform.set(globalThis, platform);
-
-const globals = [
-  'window',
-  'document',
-  'HTMLElement',
-  'HTMLInputElement',
-  'HTMLTextAreaElement',
-  'HTMLSelectElement',
-  'HTMLOptionElement',
-  'HTMLButtonElement',
-  'HTMLLabelElement',
-  'HTMLFormElement',
-  'Event',
-  'CustomEvent',
-  'MouseEvent',
-  'KeyboardEvent',
-  'InputEvent',
-  'PointerEvent',
-  'FocusEvent',
-  'File',
-  'FileList',
-  'DataTransfer',
-];
-for (const key of globals) {
-  if (key in w) {
-    Object.defineProperty(globalThis, key, {
-      value: w[key],
-      configurable: true,
-      writable: true,
-    });
-  }
-}
+installTestEnvironment();
 
 class App {
   message = 'Hello';
@@ -104,6 +55,4 @@ test('aurelia fixture smoke test with userEvent', async () => {
   await waitFor(() => {
     assert.equal(screen.getByText('1').id, 'submit');
   });
-
-  await cleanup();
 });

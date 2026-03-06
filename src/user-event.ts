@@ -75,6 +75,14 @@ const specialKeys: Record<string, { key: string; code: string; char?: string }> 
 const isHTMLElement = (el: Element): el is HTMLElement =>
   el instanceof (el.ownerDocument.defaultView?.HTMLElement ?? HTMLElement);
 
+const hasContentEditableAttribute = (el: Element): boolean => {
+  const attribute = el.getAttribute('contenteditable');
+  return attribute != null && attribute.toLowerCase() !== 'false';
+};
+
+const isContentEditableElement = (el: Element): el is HTMLElement =>
+  isHTMLElement(el) && (el.isContentEditable || hasContentEditableAttribute(el));
+
 const tagEquals = (el: Element, tag: string): boolean =>
   el.tagName.toLowerCase() === tag;
 
@@ -132,13 +140,19 @@ const isFocusable = (el: Element): boolean => {
     return false;
   }
   const tag = el.tagName.toLowerCase();
+  if (tag === 'input' && isInputElement(el) && el.type === 'hidden') {
+    return false;
+  }
+  if (isContentEditableElement(el)) {
+    return true;
+  }
   if (['input', 'select', 'textarea', 'button'].includes(tag)) {
     return true;
   }
   if (tag === 'a') {
     return Boolean((el as HTMLAnchorElement).href);
   }
-  return el.tabIndex >= 0;
+  return (el as HTMLElement).tabIndex >= 0;
 };
 
 const focusElement = (el: Element): void => {
@@ -175,17 +189,17 @@ const blurElement = (el: Element): void => {
   el.dispatchEvent(new win.FocusEvent('blur', { bubbles: false }));
 };
 
-const fireMouse = (el: Element, type: string, init?: MouseEventInit): void => {
+const fireMouse = (el: Element, type: string, init?: MouseEventInit): boolean => {
   const win = getWin(el.ownerDocument);
-  el.dispatchEvent(new win.MouseEvent(type, { bubbles: true, cancelable: true, ...init }));
+  return el.dispatchEvent(new win.MouseEvent(type, { bubbles: true, cancelable: true, ...init }));
 };
 
-const firePointer = (el: Element, type: string, init?: PointerEventInit): void => {
+const firePointer = (el: Element, type: string, init?: PointerEventInit): boolean => {
   const win = getWin(el.ownerDocument);
   if (win.PointerEvent == null) {
-    return;
+    return true;
   }
-  el.dispatchEvent(
+  return el.dispatchEvent(
     new win.PointerEvent(type, {
       bubbles: true,
       cancelable: true,
@@ -218,15 +232,15 @@ const mouseFromPointer = (type: PointerAction['type']): string | null => {
   }
 };
 
-const fireKeyboard = (el: Element, type: string, init: KeyboardEventInit): void => {
+const fireKeyboard = (el: Element, type: string, init: KeyboardEventInit): boolean => {
   const win = getWin(el.ownerDocument);
-  el.dispatchEvent(new win.KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
+  return el.dispatchEvent(new win.KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
 };
 
-const fireInput = (el: Element, inputType: string, data: string | null): void => {
+const fireInput = (el: Element, inputType: string, data: string | null): boolean => {
   const win = getWin(el.ownerDocument);
   if (typeof win.InputEvent === 'function') {
-    el.dispatchEvent(
+    return el.dispatchEvent(
       new win.InputEvent('input', {
         bubbles: true,
         cancelable: false,
@@ -234,23 +248,22 @@ const fireInput = (el: Element, inputType: string, data: string | null): void =>
         data,
       })
     );
-    return;
   }
-  el.dispatchEvent(new win.Event('input', { bubbles: true, cancelable: false }));
+  return el.dispatchEvent(new win.Event('input', { bubbles: true, cancelable: false }));
 };
 
-const fireChange = (el: Element): void => {
+const fireChange = (el: Element): boolean => {
   const win = getWin(el.ownerDocument);
-  el.dispatchEvent(new win.Event('change', { bubbles: true }));
+  return el.dispatchEvent(new win.Event('change', { bubbles: true }));
 };
 
-const fireClipboard = (el: Element, type: string, text: string): void => {
+const fireClipboard = (el: Element, type: string, text: string): boolean => {
   const win = getWin(el.ownerDocument);
   const data = { getData: () => text } as unknown as DataTransfer;
   const event = typeof win.ClipboardEvent === 'function'
     ? new win.ClipboardEvent(type, { bubbles: true, cancelable: true, clipboardData: data })
     : new win.Event(type, { bubbles: true, cancelable: true });
-  el.dispatchEvent(event);
+  return el.dispatchEvent(event);
 };
 
 const parseText = (text: string): ParsedToken[] => {
@@ -282,7 +295,7 @@ const getValue = (el: Element): string => {
   if (isInputElement(el) || isTextAreaElement(el)) {
     return el.value;
   }
-  if (el instanceof HTMLElement && el.isContentEditable) {
+  if (isContentEditableElement(el)) {
     return el.textContent ?? '';
   }
   return '';
@@ -293,7 +306,7 @@ const setValue = (el: Element, value: string): void => {
     el.value = value;
     return;
   }
-  if (el instanceof HTMLElement && el.isContentEditable) {
+  if (isContentEditableElement(el)) {
     el.textContent = value;
     return;
   }
@@ -302,15 +315,16 @@ const setValue = (el: Element, value: string): void => {
 
 const setFiles = (input: HTMLInputElement, files: File[]): void => {
   const win = input.ownerDocument.defaultView;
+  const acceptedFiles = input.multiple ? files : files.slice(0, 1);
   let fileList: FileList | File[];
   if (win?.DataTransfer != null) {
     const dt = new win.DataTransfer();
-    for (const file of files) {
+    for (const file of acceptedFiles) {
       dt.items.add(file);
     }
     fileList = dt.files;
   } else {
-    fileList = files;
+    fileList = acceptedFiles;
   }
   Object.defineProperty(input, 'files', {
     configurable: true,
@@ -353,10 +367,17 @@ const waitDelay = async (delay: number, advanceTimers?: UserEventSetupOptions['a
 const getFocusableElements = (doc: Document): HTMLElement[] => {
   const nodes = Array.from(
     doc.querySelectorAll<HTMLElement>(
-      'input, select, textarea, button, a[href], [tabindex]:not([tabindex="-1"])'
+      'input:not([type="hidden"]), select, textarea, button, a[href], [contenteditable]:not([contenteditable="false"]), [tabindex]:not([tabindex="-1"])'
     )
   );
   return nodes.filter(node => !isDisabled(node));
+};
+
+const resolveClickTarget = (target: Element): Element => {
+  if (!isLabelElement(target)) {
+    return target;
+  }
+  return target.control ?? (target.htmlFor ? target.ownerDocument.getElementById(target.htmlFor) : null) ?? target;
 };
 
 const moveFocus = (doc: Document, shift?: boolean): void => {
@@ -380,14 +401,9 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
   const baseDelay = options.delay ?? 0;
 
   const click = async (target: Element): Promise<void> => {
+    target = resolveClickTarget(target);
     if (isDisabled(target)) {
       return;
-    }
-    if (isLabelElement(target)) {
-      const control = target.control ?? (target.htmlFor ? target.ownerDocument.getElementById(target.htmlFor) : null);
-      if (control != null) {
-        target = control;
-      }
     }
     const wasChecked = isInputElement(target) ? target.checked : undefined;
     firePointer(target, 'pointerover');
@@ -401,7 +417,11 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     }
     firePointer(target, 'pointerup', { buttons: 0 });
     fireMouse(target, 'mouseup', { buttons: 0, button: 0 });
-    fireMouse(target, 'click', { buttons: 0, button: 0 });
+    const clickAllowed = fireMouse(target, 'click', { buttons: 0, button: 0 });
+
+    if (!clickAllowed) {
+      return;
+    }
 
     if (isOptionElement(target)) {
       const select = target.closest('select');
@@ -501,11 +521,7 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     if (isDisabled(target)) {
       return;
     }
-    if (!isFocusable(target)) {
-      focusElement(target);
-    } else {
-      focusElement(target);
-    }
+    focusElement(target);
 
     const delay = opts?.delay ?? baseDelay;
     const tokens = parseText(text);
@@ -517,11 +533,13 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
 
       if (token.kind === 'char') {
         const key = token.value;
-        fireKeyboard(target, 'keydown', { key, code: key });
-        fireKeyboard(target, 'keypress', { key, code: key });
-        const current = getValue(target);
-        setValue(target, current + key);
-        fireInput(target, 'insertText', key);
+        const keyDownAllowed = fireKeyboard(target, 'keydown', { key, code: key });
+        const keyPressAllowed = keyDownAllowed && fireKeyboard(target, 'keypress', { key, code: key });
+        if (keyPressAllowed) {
+          const current = getValue(target);
+          setValue(target, current + key);
+          fireInput(target, 'insertText', key);
+        }
         fireKeyboard(target, 'keyup', { key, code: key });
         continue;
       }
@@ -529,15 +547,22 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
       const special = specialKeys[token.value];
       if (special == null) {
         const key = `{${token.value}}`;
-        fireKeyboard(target, 'keydown', { key, code: key });
-        fireKeyboard(target, 'keypress', { key, code: key });
+        const keyDownAllowed = fireKeyboard(target, 'keydown', { key, code: key });
+        if (keyDownAllowed) {
+          fireKeyboard(target, 'keypress', { key, code: key });
+        }
         fireKeyboard(target, 'keyup', { key, code: key });
         continue;
       }
 
       const key = special.key;
       const code = special.code;
-      fireKeyboard(target, 'keydown', { key, code });
+      const keyDownAllowed = fireKeyboard(target, 'keydown', { key, code });
+
+      if (!keyDownAllowed) {
+        fireKeyboard(target, 'keyup', { key, code });
+        continue;
+      }
 
       if (token.value === 'tab' || token.value === 'shift+tab') {
         fireKeyboard(target, 'keyup', { key, code });
@@ -557,9 +582,12 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
       }
 
       if (special.char != null) {
-        const current = getValue(target);
-        setValue(target, current + special.char);
-        fireInput(target, 'insertText', special.char);
+        const keyPressAllowed = fireKeyboard(target, 'keypress', { key, code });
+        if (keyPressAllowed) {
+          const current = getValue(target);
+          setValue(target, current + special.char);
+          fireInput(target, 'insertText', special.char);
+        }
       }
 
       fireKeyboard(target, 'keyup', { key, code });
@@ -590,7 +618,10 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
       return;
     }
     focusElement(target);
-    fireClipboard(target, 'paste', text);
+    const pasteAllowed = fireClipboard(target, 'paste', text);
+    if (!pasteAllowed) {
+      return;
+    }
     const current = getValue(target);
     setValue(target, current + text);
     fireInput(target, 'insertFromPaste', text);

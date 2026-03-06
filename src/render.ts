@@ -7,9 +7,14 @@ import {
   prettyDOM,
   queries,
 } from '@testing-library/dom';
-import { getScreenElement, resetScreenElement, setScreenElement } from './screen.js';
+import { resetScreenElement, setScreenElement } from './screen.js';
 
-const mountedFixtures = new Set<IFixture<any>>();
+interface MountedRender {
+  fixture: IFixture<any>;
+  baseElement: HTMLElement;
+}
+
+const mountedRenders: MountedRender[] = [];
 
 type QueryApi = ReturnType<typeof getQueriesForElement>;
 
@@ -135,9 +140,13 @@ export const render = async <T extends object>(
     fixture.testHost;
   const container = fixture.appHost;
   const queryApi = getQueriesForElement(resolvedBase, queries);
+  const mountedRender: MountedRender = {
+    fixture,
+    baseElement: resolvedBase,
+  };
 
+  mountedRenders.push(mountedRender);
   setScreenElement(resolvedBase);
-  mountedFixtures.add(fixture);
 
   const debug = (el: HTMLElement = resolvedBase, maxLength = 7000): string => {
     const output = prettyDOM(el, maxLength) || '';
@@ -166,11 +175,17 @@ export const render = async <T extends object>(
   };
 
   const unmount = async (): Promise<void> => {
-    mountedFixtures.delete(fixture);
     await fixture.stop(true);
-    if (getScreenElement() === resolvedBase) {
-      resetScreenElement();
+    const index = mountedRenders.indexOf(mountedRender);
+    if (index !== -1) {
+      mountedRenders.splice(index, 1);
     }
+    const currentRender = mountedRenders[mountedRenders.length - 1];
+    if (currentRender != null) {
+      setScreenElement(currentRender.baseElement);
+      return;
+    }
+    resetScreenElement();
   };
 
   const asFragment = (): DocumentFragment => {
@@ -213,10 +228,30 @@ export const renderComponent = async <T extends object>(
 };
 
 export const cleanup = async (): Promise<void> => {
-  const fixtures = Array.from(mountedFixtures);
-  mountedFixtures.clear();
-  for (const fixture of fixtures) {
-    await fixture.stop(true);
+  let firstError: unknown;
+
+  for (const mountedRender of [...mountedRenders]) {
+    try {
+      await mountedRender.fixture.stop(true);
+      const index = mountedRenders.indexOf(mountedRender);
+      if (index !== -1) {
+        mountedRenders.splice(index, 1);
+      }
+    } catch (error) {
+      if (firstError === undefined) {
+        firstError = error;
+      }
+    }
   }
-  resetScreenElement();
+
+  const currentRender = mountedRenders[mountedRenders.length - 1];
+  if (currentRender != null) {
+    setScreenElement(currentRender.baseElement);
+  } else {
+    resetScreenElement();
+  }
+
+  if (firstError !== undefined) {
+    throw firstError;
+  }
 };
