@@ -1,8 +1,16 @@
-import { getQueriesForElement, queries } from '@testing-library/dom';
+import {
+  getQueriesForElement,
+  logDOM,
+  queries as defaultQueries,
+  screen as domScreen,
+} from '@testing-library/dom';
+import type { Queries, Screen as DomScreen } from '@testing-library/dom';
 
 let currentElement: HTMLElement | null = null;
+let currentQueries: Queries | null = null;
 let cachedElement: HTMLElement | null = null;
-let cachedQueries: ReturnType<typeof getQueriesForElement> | null = null;
+let cachedQueriesSource: Queries | null = null;
+let cachedQueries: DomScreen | null = null;
 
 const resolveElement = (): HTMLElement => {
   if (currentElement != null) {
@@ -16,13 +24,38 @@ const resolveElement = (): HTMLElement => {
   return document.body;
 };
 
-const getQueries = (): ReturnType<typeof getQueriesForElement> => {
+const resolveQueries = (): Queries => currentQueries ?? defaultQueries;
+
+const createScreenApi = (element: HTMLElement, querySet: Queries): DomScreen => Object.assign(
+  getQueriesForElement<Queries>(element, querySet),
+  {
+    debug: (
+      el: Array<Element | HTMLDocument> | Element | HTMLDocument = element,
+      maxLength?: number,
+      options?: Parameters<DomScreen['debug']>[2]
+    ): void => {
+      if (Array.isArray(el)) {
+        for (const current of el) {
+          logDOM(current, maxLength, options);
+        }
+        return;
+      }
+      logDOM(el, maxLength, options);
+    },
+    logTestingPlaygroundURL: (el: Element | HTMLDocument = element): string =>
+      domScreen.logTestingPlaygroundURL(el),
+  }
+) as unknown as DomScreen;
+
+const getQueries = (): DomScreen => {
   const element = resolveElement();
-  if (cachedQueries != null && cachedElement === element) {
+  const querySet = resolveQueries();
+  if (cachedQueries != null && cachedElement === element && cachedQueriesSource === querySet) {
     return cachedQueries;
   }
   cachedElement = element;
-  cachedQueries = getQueriesForElement(element, queries);
+  cachedQueriesSource = querySet;
+  cachedQueries = createScreenApi(element, querySet);
   return cachedQueries;
 };
 
@@ -38,17 +71,21 @@ export const screen = new Proxy(
       return value;
     },
   }
-) as ReturnType<typeof getQueriesForElement>;
+) as DomScreen;
 
-export const setScreenElement = (element: HTMLElement): void => {
+export const setScreenElement = (element: HTMLElement, querySet: Queries = defaultQueries): void => {
   currentElement = element;
+  currentQueries = querySet;
   cachedElement = element;
-  cachedQueries = getQueriesForElement(element, queries);
+  cachedQueriesSource = querySet;
+  cachedQueries = createScreenApi(element, querySet);
 };
 
 export const resetScreenElement = (): void => {
   currentElement = null;
+  currentQueries = null;
   cachedElement = null;
+  cachedQueriesSource = null;
   cachedQueries = null;
 };
 

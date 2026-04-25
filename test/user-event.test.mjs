@@ -73,6 +73,31 @@ test('click respects preventDefault and disabled label targets', async () => {
   assert.equal(disabledCheckbox.checked, false);
 });
 
+test('setup, check, and uncheck mirror common user-event ergonomics', async () => {
+  document.body.innerHTML = `
+    <label>
+      Subscribe
+      <input type="checkbox">
+    </label>
+  `;
+
+  const user = userEvent.setup();
+  const checkbox = within(document.body).getByLabelText('Subscribe');
+  const changes = [];
+
+  checkbox.addEventListener('change', () => {
+    changes.push(checkbox.checked);
+  });
+
+  await user.check(checkbox);
+  await user.check(checkbox);
+  await user.uncheck(checkbox);
+  await user.uncheck(checkbox);
+
+  assert.equal(checkbox.checked, false);
+  assert.deepEqual(changes, [true, false]);
+});
+
 test('type, keyboard, paste, clear, focus, blur, and tab work across common controls', async () => {
   document.body.innerHTML = `
     <label>
@@ -115,6 +140,46 @@ test('type, keyboard, paste, clear, focus, blur, and tab work across common cont
 
   await userEvent.clear(name);
   assert.equal(name.value, '');
+});
+
+test('type, paste, backspace, delete, and selectAll respect text selections', async () => {
+  document.body.innerHTML = `
+    <label>
+      Title
+      <input value="Aurelia Testing">
+    </label>
+    <label>
+      Body
+      <textarea>Hello framework</textarea>
+    </label>
+  `;
+
+  const title = within(document.body).getByLabelText('Title');
+  const body = within(document.body).getByLabelText('Body');
+
+  title.setSelectionRange(8, 15);
+  await userEvent.focus(title);
+  await userEvent.type(title, 'Library');
+  assert.equal(title.value, 'Aurelia Library');
+  assert.equal(title.selectionStart, 'Aurelia Library'.length);
+
+  title.setSelectionRange(8, 15);
+  await userEvent.paste(title, 'Testing');
+  assert.equal(title.value, 'Aurelia Testing');
+
+  title.setSelectionRange(8, 15);
+  await userEvent.keyboard('{backspace}');
+  assert.equal(title.value, 'Aurelia ');
+  assert.equal(title.selectionStart, 8);
+
+  title.value = 'Aurelia Testing';
+  title.setSelectionRange(8, 8);
+  await userEvent.keyboard('{delete}');
+  assert.equal(title.value, 'Aurelia esting');
+
+  await userEvent.selectAll(body);
+  await userEvent.type(body, 'Hello library');
+  assert.equal(body.value, 'Hello library');
 });
 
 test('selectOptions, deselectOptions, pointer, and upload enforce browser-like constraints', async () => {

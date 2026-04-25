@@ -21,15 +21,21 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && npm run test:types && node --test test/*.test.mjs",
+    "test:types": "tsc --noEmit --strict --target ES2020 --module ES2020 --moduleResolution Bundler --lib ES2020,DOM --skipLibCheck test/types/*.ts"
   },
   "peerDependencies": {
-    "@aurelia/testing": ">=2.0.0-rc.0",
+    "@aurelia/kernel": ">=2.0.0-rc.1 <3.0.0",
+    "@aurelia/platform-browser": ">=2.0.0-rc.1 <3.0.0",
+    "@aurelia/runtime-html": ">=2.0.0-rc.1 <3.0.0",
+    "@aurelia/testing": ">=2.0.0-rc.1 <3.0.0",
     "@testing-library/dom": ">=9.0.0"
   },
   "devDependencies": {
-    "@aurelia/testing": "2.0.0-rc.0",
-    "@aurelia/platform-browser": "2.0.0-rc.0",
+    "@aurelia/kernel": "^2.0.0-rc.1",
+    "@aurelia/platform-browser": "^2.0.0-rc.1",
+    "@aurelia/runtime-html": "^2.0.0-rc.1",
+    "@aurelia/testing": "^2.0.0-rc.1",
     "@testing-library/dom": "10.4.1",
     "jsdom": "24.1.0",
     "typescript": "5.9.2"

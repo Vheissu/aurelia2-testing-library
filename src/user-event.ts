@@ -19,6 +19,8 @@ export interface TypeOptions {
 
 export interface UserEvent {
   click: (target: Element) => Promise<void>;
+  check: (target: Element) => Promise<void>;
+  uncheck: (target: Element) => Promise<void>;
   dblClick: (target: Element) => Promise<void>;
   tripleClick: (target: Element) => Promise<void>;
   rightClick: (target: Element) => Promise<void>;
@@ -26,6 +28,7 @@ export interface UserEvent {
   unhover: (target: Element) => Promise<void>;
   focus: (target: Element) => Promise<void>;
   blur: (target: Element) => Promise<void>;
+  selectAll: (target: Element) => Promise<void>;
   type: (target: Element, text: string, options?: TypeOptions) => Promise<void>;
   keyboard: (text: string, options?: TypeOptions) => Promise<void>;
   clear: (target: Element) => Promise<void>;
@@ -41,6 +44,10 @@ export interface UserEvent {
   ) => Promise<void>;
   tab: (options?: { shift?: boolean }) => Promise<void>;
   pointer: (actions: PointerAction[] | PointerAction) => Promise<void>;
+}
+
+export interface UserEventApi extends UserEvent {
+  setup: (options?: UserEventSetupOptions) => UserEvent;
 }
 
 type ParsedToken =
@@ -301,6 +308,92 @@ const getValue = (el: Element): string => {
   return '';
 };
 
+const hasTextSelection = (
+  el: Element
+): el is HTMLInputElement | HTMLTextAreaElement => {
+  if (!(isInputElement(el) || isTextAreaElement(el))) {
+    return false;
+  }
+  try {
+    return typeof el.selectionStart === 'number' && typeof el.selectionEnd === 'number';
+  } catch {
+    return false;
+  }
+};
+
+const setTextSelection = (el: Element, start: number, end = start): void => {
+  if (hasTextSelection(el) && typeof el.setSelectionRange === 'function') {
+    el.setSelectionRange(start, end);
+  }
+};
+
+const moveSelectionToEnd = (el: Element): void => {
+  if (hasTextSelection(el)) {
+    const end = getValue(el).length;
+    setTextSelection(el, end);
+  }
+};
+
+const replaceSelectedText = (el: Element, text: string): void => {
+  const current = getValue(el);
+  if (!hasTextSelection(el)) {
+    setValue(el, current + text);
+    return;
+  }
+  const start = el.selectionStart ?? current.length;
+  const end = el.selectionEnd ?? start;
+  setValue(el, `${current.slice(0, start)}${text}${current.slice(end)}`);
+  setTextSelection(el, start + text.length);
+};
+
+const deleteTextBackward = (el: Element): boolean => {
+  const current = getValue(el);
+  if (current.length === 0) {
+    return false;
+  }
+  if (!hasTextSelection(el)) {
+    setValue(el, current.slice(0, -1));
+    return true;
+  }
+  const start = el.selectionStart ?? current.length;
+  const end = el.selectionEnd ?? start;
+  if (start !== end) {
+    setValue(el, `${current.slice(0, start)}${current.slice(end)}`);
+    setTextSelection(el, start);
+    return true;
+  }
+  if (start === 0) {
+    return false;
+  }
+  setValue(el, `${current.slice(0, start - 1)}${current.slice(end)}`);
+  setTextSelection(el, start - 1);
+  return true;
+};
+
+const deleteTextForward = (el: Element): boolean => {
+  const current = getValue(el);
+  if (current.length === 0) {
+    return false;
+  }
+  if (!hasTextSelection(el)) {
+    setValue(el, current.slice(0, -1));
+    return true;
+  }
+  const start = el.selectionStart ?? current.length;
+  const end = el.selectionEnd ?? start;
+  if (start !== end) {
+    setValue(el, `${current.slice(0, start)}${current.slice(end)}`);
+    setTextSelection(el, start);
+    return true;
+  }
+  if (start >= current.length) {
+    return false;
+  }
+  setValue(el, `${current.slice(0, start)}${current.slice(start + 1)}`);
+  setTextSelection(el, start);
+  return true;
+};
+
 const setValue = (el: Element, value: string): void => {
   if (isInputElement(el) || isTextAreaElement(el)) {
     el.value = value;
@@ -406,6 +499,15 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
       return;
     }
     const wasChecked = isInputElement(target) ? target.checked : undefined;
+    let checkableChangeDispatched = false;
+    const isCheckableInput =
+      isInputElement(target) && (target.type === 'checkbox' || target.type === 'radio');
+    const markCheckableChange = (): void => {
+      checkableChangeDispatched = true;
+    };
+    if (isCheckableInput) {
+      target.addEventListener('change', markCheckableChange);
+    }
     firePointer(target, 'pointerover');
     firePointer(target, 'pointerenter');
     fireMouse(target, 'mouseover');
@@ -418,6 +520,9 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     firePointer(target, 'pointerup', { buttons: 0 });
     fireMouse(target, 'mouseup', { buttons: 0, button: 0 });
     const clickAllowed = fireMouse(target, 'click', { buttons: 0, button: 0 });
+    if (isCheckableInput) {
+      target.removeEventListener('change', markCheckableChange);
+    }
 
     if (!clickAllowed) {
       return;
@@ -438,13 +543,13 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
 
     if (isInputElement(target)) {
       if (target.type === 'checkbox') {
-        if (wasChecked === target.checked) {
-          target.checked = !target.checked;
+        target.checked = !wasChecked;
+        if (!checkableChangeDispatched) {
+          fireInput(target, 'insertReplacementText', null);
+          fireChange(target);
         }
-        fireInput(target, 'insertReplacementText', null);
-        fireChange(target);
       } else if (target.type === 'radio') {
-        if (!target.checked) {
+        if (!wasChecked) {
           target.checked = true;
           if (target.name) {
             const radios = Array.from(
@@ -458,10 +563,32 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
               }
             }
           }
-          fireInput(target, 'insertReplacementText', null);
-          fireChange(target);
+          if (!checkableChangeDispatched) {
+            fireInput(target, 'insertReplacementText', null);
+            fireChange(target);
+          }
         }
       }
+    }
+  };
+
+  const check = async (target: Element): Promise<void> => {
+    target = resolveClickTarget(target);
+    if (!isInputElement(target) || !['checkbox', 'radio'].includes(target.type)) {
+      throw new Error('check() requires a checkbox or radio input');
+    }
+    if (!target.checked) {
+      await click(target);
+    }
+  };
+
+  const uncheck = async (target: Element): Promise<void> => {
+    target = resolveClickTarget(target);
+    if (!isInputElement(target) || target.type !== 'checkbox') {
+      throw new Error('uncheck() requires a checkbox input');
+    }
+    if (target.checked) {
+      await click(target);
     }
   };
 
@@ -514,6 +641,25 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     blurElement(target);
   };
 
+  const selectAll = async (target: Element): Promise<void> => {
+    focusElement(target);
+    if (hasTextSelection(target)) {
+      setTextSelection(target, 0, getValue(target).length);
+      return;
+    }
+    if (isContentEditableElement(target)) {
+      const doc = target.ownerDocument;
+      const selection = doc.getSelection();
+      if (selection == null) {
+        return;
+      }
+      const range = doc.createRange();
+      range.selectNodeContents(target);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  };
+
   const type = async (target: Element, text: string, opts?: TypeOptions): Promise<void> => {
     if (!isHTMLElement(target)) {
       throw new Error('Target must be an HTMLElement');
@@ -521,7 +667,11 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     if (isDisabled(target)) {
       return;
     }
+    const wasActive = target.ownerDocument.activeElement === target;
     focusElement(target);
+    if (!wasActive) {
+      moveSelectionToEnd(target);
+    }
 
     const delay = opts?.delay ?? baseDelay;
     const tokens = parseText(text);
@@ -536,8 +686,7 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
         const keyDownAllowed = fireKeyboard(target, 'keydown', { key, code: key });
         const keyPressAllowed = keyDownAllowed && fireKeyboard(target, 'keypress', { key, code: key });
         if (keyPressAllowed) {
-          const current = getValue(target);
-          setValue(target, current + key);
+          replaceSelectedText(target, key);
           fireInput(target, 'insertText', key);
         }
         fireKeyboard(target, 'keyup', { key, code: key });
@@ -572,10 +721,15 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
       }
 
       if (token.value === 'backspace' || token.value === 'delete') {
-        const current = getValue(target);
-        if (current.length > 0) {
-          setValue(target, current.slice(0, -1));
-          fireInput(target, 'deleteContentBackward', null);
+        const changed = token.value === 'backspace'
+          ? deleteTextBackward(target)
+          : deleteTextForward(target);
+        if (changed) {
+          fireInput(
+            target,
+            token.value === 'backspace' ? 'deleteContentBackward' : 'deleteContentForward',
+            null
+          );
         }
         fireKeyboard(target, 'keyup', { key, code });
         continue;
@@ -584,8 +738,7 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
       if (special.char != null) {
         const keyPressAllowed = fireKeyboard(target, 'keypress', { key, code });
         if (keyPressAllowed) {
-          const current = getValue(target);
-          setValue(target, current + special.char);
+          replaceSelectedText(target, special.char);
           fireInput(target, 'insertText', special.char);
         }
       }
@@ -622,8 +775,7 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     if (!pasteAllowed) {
       return;
     }
-    const current = getValue(target);
-    setValue(target, current + text);
+    replaceSelectedText(target, text);
     fireInput(target, 'insertFromPaste', text);
   };
 
@@ -736,6 +888,8 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
 
   return {
     click,
+    check,
+    uncheck,
     dblClick,
     tripleClick,
     rightClick,
@@ -743,6 +897,7 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     unhover,
     focus,
     blur,
+    selectAll,
     type,
     keyboard,
     clear,
@@ -755,4 +910,6 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
   };
 };
 
-export const userEvent = createUserEvent();
+export const userEvent: UserEventApi = Object.assign(createUserEvent(), {
+  setup: createUserEvent,
+});
