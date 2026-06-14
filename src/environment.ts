@@ -53,6 +53,8 @@ const defaultGlobals = [
   'HTMLLabelElement',
   'HTMLFormElement',
   'HTMLAnchorElement',
+  'HTMLOptGroupElement',
+  'SVGElement',
   'Event',
   'CustomEvent',
   'MouseEvent',
@@ -60,10 +62,13 @@ const defaultGlobals = [
   'InputEvent',
   'PointerEvent',
   'FocusEvent',
+  'ClipboardEvent',
+  'DragEvent',
   'File',
   'FileList',
   'DataTransfer',
   'DocumentFragment',
+  'MutationObserver',
   'CSS',
 ];
 

@@ -92,6 +92,26 @@ const { user, component } = await setup(
 await user.click(screen.getByRole('button', { name: 'Save' }));
 ```
 
+The `user` returned by `setup()` / `setupComponent()` automatically flushes
+Aurelia's task queues after every interaction, the same way React Testing
+Library wraps user-event in `act()`. That means bound state and the DOM are
+already up to date once the call resolves, so you usually don't need `waitFor`
+for synchronous bindings:
+
+```ts
+const { user, getByRole, getByTestId } = await setup(
+  `<button click.trigger="count++">Add</button><span data-testid="count">\${count}</span>`,
+  { component: class { count = 0; } }
+);
+
+await user.click(getByRole('button', { name: 'Add' }));
+expect(getByTestId('count').textContent).toBe('1'); // no waitFor needed
+```
+
+Pass `user: { settle: () => {} }` to opt out, or `user: existingUserInstance` to
+reuse one you created yourself. Still reach for `waitFor` / `findBy*` when work
+is genuinely async (timeouts, promises, network).
+
 ### `setupComponent(component, options)`
 
 Render a `CustomElement` as the root without passing its template yourself.
@@ -307,8 +327,27 @@ await user.upload(screen.getByLabelText('Avatar'), new File(['x'], 'avatar.png')
 Available helpers:
 - `click`, `check`, `uncheck`, `dblClick`, `tripleClick`, `rightClick`
 - `hover`, `unhover`, `focus`, `blur`, `tab`, `pointer`
-- `selectAll`, `type`, `keyboard`, `clear`, `paste`
+- `selectAll`, `type`, `keyboard`, `clear`, `paste`, `copy`, `cut`
 - `selectOptions`, `deselectOptions`, `upload`
+
+#### Keyboard modifiers
+
+`type()` and `keyboard()` understand the `{Modifier>}…{/Modifier}` press-and-hold
+syntax for `Shift`, `Control` (alias `Ctrl`), `Alt` (alias `Option`), and `Meta`
+(aliases `Command`, `Cmd`, `Os`). Held modifiers set the matching
+`shiftKey`/`ctrlKey`/`altKey`/`metaKey` flags on dispatched events, uppercase
+letters while `Shift` is down, and suppress text insertion for `Ctrl`/`Alt`/`Meta`
+chords:
+
+```ts
+await user.type(screen.getByLabelText('Title'), '{Shift>}hello{/Shift}'); // "HELLO"
+await user.keyboard('{Control>}a{/Control}');                            // Ctrl+A, no text
+await user.type(input, '{Shift>}{ArrowRight}{ArrowRight}{/Shift}');      // shift-select
+```
+
+`copy()` / `cut()` read the current text selection (input/textarea range or the
+document selection for contenteditable), dispatch the matching clipboard event,
+and return the copied text. `cut()` also removes the selected text.
 
 ## Aurelia Helpers
 
@@ -344,7 +383,10 @@ submitted.dispose();
 
 From DOM Testing Library:
 `fireEvent`, `within`, `waitFor`, `waitForElementToBeRemoved`,
-`getQueriesForElement`, `queries`, `prettyDOM`, `logDOM`, and `configure`.
+`getQueriesForElement`, `queries`, `queryHelpers`, `buildQueries`, `prettyDOM`,
+`prettyFormat`, `logDOM`, `logRoles`, `getRoles`, `getNodeText`,
+`getDefaultNormalizer`, `getSuggestedQuery`, and `configure`, plus the common
+matcher/query/`waitForOptions` types.
 
 From `@aurelia/testing`:
 `createFixture`, `ensureTaskQueuesEmpty`, `setPlatform`, `TestContext`, and the

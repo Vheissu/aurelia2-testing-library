@@ -51,15 +51,35 @@ export {
 export type { IFixture } from '@aurelia/testing';
 
 export {
+  buildQueries,
+  configure,
   fireEvent,
-  within,
+  getDefaultNormalizer,
+  getNodeText,
+  getQueriesForElement,
+  getRoles,
+  getSuggestedQuery,
+  logDOM,
+  logRoles,
+  prettyDOM,
+  prettyFormat,
+  queries,
+  queryHelpers,
   waitFor,
   waitForElementToBeRemoved,
-  getQueriesForElement,
-  queries,
-  prettyDOM,
-  logDOM,
-  configure,
+  within,
+} from '@testing-library/dom';
+export type {
+  BoundFunctions,
+  ByRoleMatcher,
+  ByRoleOptions,
+  Matcher,
+  MatcherOptions,
+  Queries,
+  Query,
+  Screen,
+  SelectorMatcherOptions,
+  waitForOptions,
 } from '@testing-library/dom';
 
 // Types can be imported directly from @testing-library/dom when needed.

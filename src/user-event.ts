@@ -11,6 +11,12 @@ export interface UserEventSetupOptions {
    * Default document to use when one cannot be inferred from the element.
    */
   document?: Document;
+  /**
+   * Invoked after every user interaction completes. Render/setup wire this to
+   * Aurelia's `settle()` so reactive bindings flush automatically, mirroring
+   * the way React Testing Library wraps user-event actions in `act()`.
+   */
+  settle?: () => void | Promise<void>;
 }
 
 export interface TypeOptions {
@@ -33,6 +39,8 @@ export interface UserEvent {
   keyboard: (text: string, options?: TypeOptions) => Promise<void>;
   clear: (target: Element) => Promise<void>;
   paste: (target: Element, text: string) => Promise<void>;
+  copy: (target?: Element) => Promise<string>;
+  cut: (target?: Element) => Promise<string>;
   upload: (target: HTMLInputElement, files: File | File[]) => Promise<void>;
   selectOptions: (
     target: HTMLSelectElement,
@@ -77,6 +85,20 @@ const specialKeys: Record<string, { key: string; code: string; char?: string }> 
   arrowright: { key: 'ArrowRight', code: 'ArrowRight' },
   arrowup: { key: 'ArrowUp', code: 'ArrowUp' },
   arrowdown: { key: 'ArrowDown', code: 'ArrowDown' },
+};
+
+type ModifierName = 'shift' | 'ctrl' | 'alt' | 'meta';
+
+const modifierKeys: Record<string, { name: ModifierName; key: string; code: string }> = {
+  shift: { name: 'shift', key: 'Shift', code: 'ShiftLeft' },
+  ctrl: { name: 'ctrl', key: 'Control', code: 'ControlLeft' },
+  control: { name: 'ctrl', key: 'Control', code: 'ControlLeft' },
+  alt: { name: 'alt', key: 'Alt', code: 'AltLeft' },
+  option: { name: 'alt', key: 'Alt', code: 'AltLeft' },
+  meta: { name: 'meta', key: 'Meta', code: 'MetaLeft' },
+  command: { name: 'meta', key: 'Meta', code: 'MetaLeft' },
+  cmd: { name: 'meta', key: 'Meta', code: 'MetaLeft' },
+  os: { name: 'meta', key: 'Meta', code: 'MetaLeft' },
 };
 
 const isHTMLElement = (el: Element): el is HTMLElement =>
@@ -376,8 +398,8 @@ const deleteTextForward = (el: Element): boolean => {
     return false;
   }
   if (!hasTextSelection(el)) {
-    setValue(el, current.slice(0, -1));
-    return true;
+    // Without a cursor position there is no character "ahead" to remove.
+    return false;
   }
   const start = el.selectionStart ?? current.length;
   const end = el.selectionEnd ?? start;
@@ -493,6 +515,31 @@ const moveFocus = (doc: Document, shift?: boolean): void => {
 export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent => {
   const baseDelay = options.delay ?? 0;
 
+  // Modifier state persists across calls within a single user session, the way
+  // a real keyboard keeps Shift/Ctrl held until released.
+  const activeModifiers = new Set<ModifierName>();
+  const modifierInit = (): {
+    shiftKey: boolean;
+    ctrlKey: boolean;
+    altKey: boolean;
+    metaKey: boolean;
+  } => ({
+    shiftKey: activeModifiers.has('shift'),
+    ctrlKey: activeModifiers.has('ctrl'),
+    altKey: activeModifiers.has('alt'),
+    metaKey: activeModifiers.has('meta'),
+  });
+
+  const getSelectedText = (el: Element): string => {
+    if (hasTextSelection(el)) {
+      const start = el.selectionStart ?? 0;
+      const end = el.selectionEnd ?? start;
+      return getValue(el).slice(start, end);
+    }
+    const selection = el.ownerDocument.getSelection?.();
+    return selection != null ? selection.toString() : '';
+  };
+
   const click = async (target: Element): Promise<void> => {
     target = resolveClickTarget(target);
     if (isDisabled(target)) {
@@ -508,18 +555,19 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     if (isCheckableInput) {
       target.addEventListener('change', markCheckableChange);
     }
+    const mods = modifierInit();
     firePointer(target, 'pointerover');
     firePointer(target, 'pointerenter');
-    fireMouse(target, 'mouseover');
-    fireMouse(target, 'mouseenter');
+    fireMouse(target, 'mouseover', mods);
+    fireMouse(target, 'mouseenter', mods);
     firePointer(target, 'pointerdown', { buttons: 1 });
-    fireMouse(target, 'mousedown', { buttons: 1, button: 0 });
+    fireMouse(target, 'mousedown', { buttons: 1, button: 0, ...mods });
     if (isFocusable(target)) {
       focusElement(target);
     }
     firePointer(target, 'pointerup', { buttons: 0 });
-    fireMouse(target, 'mouseup', { buttons: 0, button: 0 });
-    const clickAllowed = fireMouse(target, 'click', { buttons: 0, button: 0 });
+    fireMouse(target, 'mouseup', { buttons: 0, button: 0, ...mods });
+    const clickAllowed = fireMouse(target, 'click', { buttons: 0, button: 0, detail: 1, ...mods });
     if (isCheckableInput) {
       target.removeEventListener('change', markCheckableChange);
     }
@@ -595,13 +643,13 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
   const dblClick = async (target: Element): Promise<void> => {
     await click(target);
     await click(target);
-    fireMouse(target, 'dblclick', { buttons: 0, button: 0 });
+    fireMouse(target, 'dblclick', { buttons: 0, button: 0, detail: 2, ...modifierInit() });
   };
 
   const tripleClick = async (target: Element): Promise<void> => {
     await click(target);
     await click(target);
-    fireMouse(target, 'dblclick', { buttons: 0, button: 0 });
+    fireMouse(target, 'dblclick', { buttons: 0, button: 0, detail: 2, ...modifierInit() });
     await click(target);
   };
 
@@ -682,14 +730,45 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
       }
 
       if (token.kind === 'char') {
-        const key = token.value;
-        const keyDownAllowed = fireKeyboard(target, 'keydown', { key, code: key });
-        const keyPressAllowed = keyDownAllowed && fireKeyboard(target, 'keypress', { key, code: key });
-        if (keyPressAllowed) {
+        const mods = modifierInit();
+        const key = mods.shiftKey && /^[a-z]$/.test(token.value)
+          ? token.value.toUpperCase()
+          : token.value;
+        // ctrl/alt/meta chords are shortcuts, not text entry.
+        const insertsText = !mods.ctrlKey && !mods.altKey && !mods.metaKey;
+        const keyDownAllowed = fireKeyboard(target, 'keydown', { key, code: key, ...mods });
+        const keyPressAllowed = keyDownAllowed && fireKeyboard(target, 'keypress', { key, code: key, ...mods });
+        if (keyPressAllowed && insertsText) {
           replaceSelectedText(target, key);
           fireInput(target, 'insertText', key);
         }
-        fireKeyboard(target, 'keyup', { key, code: key });
+        fireKeyboard(target, 'keyup', { key, code: key, ...mods });
+        continue;
+      }
+
+      // Modifier press-and-hold: {Shift>} / {Control>} ... release with {/Shift}.
+      const isHold = token.value.endsWith('>');
+      const isRelease = token.value.startsWith('/');
+      if (isHold || isRelease) {
+        const name = isHold ? token.value.slice(0, -1) : token.value.slice(1);
+        const modifier = modifierKeys[name];
+        if (modifier != null) {
+          if (isHold) {
+            activeModifiers.add(modifier.name);
+            fireKeyboard(target, 'keydown', { key: modifier.key, code: modifier.code, ...modifierInit() });
+          } else {
+            fireKeyboard(target, 'keyup', { key: modifier.key, code: modifier.code, ...modifierInit() });
+            activeModifiers.delete(modifier.name);
+          }
+          continue;
+        }
+      }
+
+      // Tap a modifier once: {shift} presses and immediately releases it.
+      const tappedModifier = modifierKeys[token.value];
+      if (tappedModifier != null) {
+        fireKeyboard(target, 'keydown', { key: tappedModifier.key, code: tappedModifier.code, ...modifierInit() });
+        fireKeyboard(target, 'keyup', { key: tappedModifier.key, code: tappedModifier.code, ...modifierInit() });
         continue;
       }
 
@@ -706,17 +785,18 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
 
       const key = special.key;
       const code = special.code;
-      const keyDownAllowed = fireKeyboard(target, 'keydown', { key, code });
+      const specialMods = modifierInit();
+      const keyDownAllowed = fireKeyboard(target, 'keydown', { key, code, ...specialMods });
 
       if (!keyDownAllowed) {
-        fireKeyboard(target, 'keyup', { key, code });
+        fireKeyboard(target, 'keyup', { key, code, ...specialMods });
         continue;
       }
 
       if (token.value === 'tab' || token.value === 'shift+tab') {
-        fireKeyboard(target, 'keyup', { key, code });
+        fireKeyboard(target, 'keyup', { key, code, ...specialMods });
         const doc = getDoc(target, options.document);
-        moveFocus(doc, token.value === 'shift+tab');
+        moveFocus(doc, token.value === 'shift+tab' || specialMods.shiftKey);
         continue;
       }
 
@@ -736,14 +816,14 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
       }
 
       if (special.char != null) {
-        const keyPressAllowed = fireKeyboard(target, 'keypress', { key, code });
-        if (keyPressAllowed) {
+        const keyPressAllowed = fireKeyboard(target, 'keypress', { key, code, ...specialMods });
+        if (keyPressAllowed && !specialMods.ctrlKey && !specialMods.altKey && !specialMods.metaKey) {
           replaceSelectedText(target, special.char);
           fireInput(target, 'insertText', special.char);
         }
       }
 
-      fireKeyboard(target, 'keyup', { key, code });
+      fireKeyboard(target, 'keyup', { key, code, ...specialMods });
     }
   };
 
@@ -777,6 +857,36 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     }
     replaceSelectedText(target, text);
     fireInput(target, 'insertFromPaste', text);
+  };
+
+  const copy = async (target?: Element): Promise<string> => {
+    const el = target ?? getDoc(undefined, options.document).activeElement;
+    if (el == null) {
+      throw new Error('copy() requires a target or an active element');
+    }
+    if (target != null) {
+      focusElement(target);
+    }
+    const text = getSelectedText(el);
+    fireClipboard(el, 'copy', text);
+    return text;
+  };
+
+  const cut = async (target?: Element): Promise<string> => {
+    const el = target ?? getDoc(undefined, options.document).activeElement;
+    if (el == null) {
+      throw new Error('cut() requires a target or an active element');
+    }
+    if (target != null) {
+      focusElement(target);
+    }
+    const text = getSelectedText(el);
+    const cutAllowed = fireClipboard(el, 'cut', text);
+    if (cutAllowed && (isInputElement(el) || isTextAreaElement(el) || isContentEditableElement(el))) {
+      replaceSelectedText(el, '');
+      fireInput(el, 'deleteByCut', null);
+    }
+    return text;
   };
 
   const upload = async (target: HTMLInputElement, files: File | File[]): Promise<void> => {
@@ -886,7 +996,7 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     }
   };
 
-  return {
+  const api: UserEvent = {
     click,
     check,
     uncheck,
@@ -902,12 +1012,32 @@ export const createUserEvent = (options: UserEventSetupOptions = {}): UserEvent 
     keyboard,
     clear,
     paste,
+    copy,
+    cut,
     upload,
     selectOptions,
     deselectOptions,
     tab,
     pointer,
   };
+
+  const settle = options.settle;
+  if (settle == null) {
+    return api;
+  }
+
+  // Mirror React Testing Library: every interaction flushes pending reactive
+  // work (Aurelia task queues) before the caller continues.
+  const wrapped = {} as Record<keyof UserEvent, (...args: unknown[]) => Promise<unknown>>;
+  for (const name of Object.keys(api) as Array<keyof UserEvent>) {
+    const fn = api[name] as (...args: unknown[]) => Promise<unknown>;
+    wrapped[name] = async (...args: unknown[]): Promise<unknown> => {
+      const result = await fn(...args);
+      await settle();
+      return result;
+    };
+  }
+  return wrapped as unknown as UserEvent;
 };
 
 export const userEvent: UserEventApi = Object.assign(createUserEvent(), {

@@ -439,7 +439,13 @@ const createUser = (value: UserEventSetupOptions | UserEvent | undefined): UserE
   if (isUserEvent(value)) {
     return value;
   }
-  return createUserEvent(value);
+  // Default the user to auto-flush Aurelia after every interaction, mirroring
+  // React Testing Library's act-wrapped user-event. Callers can override by
+  // passing their own `settle` (including `() => {}` to opt out).
+  return createUserEvent({
+    ...value,
+    settle: value?.settle ?? (() => settleAurelia()),
+  });
 };
 
 export const defineExtension = <

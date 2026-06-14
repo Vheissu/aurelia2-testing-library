@@ -128,3 +128,7 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Local test/browser artifacts
+.playwright-mcp/
+a2tl-consumer-browser-smoke.png
